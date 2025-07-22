@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/aes"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -11,12 +13,14 @@ import (
 )
 
 func main() {
-	challenge1()
+	/* challenge1()
 	challenge2()
 	challenge3()
 	challenge4()
 	challenge5()
 	challenge6()
+	challenge7() */
+	challenge8()
 }
 
 func challenge1() {
@@ -127,17 +131,74 @@ func challenge6() {
 		fmt.Println("hamming distance = ", hamTest)
 	}
 
-	data, err := os.ReadFile("challenge6.txt")
+	decoded, err := readAndDecodeB64File("challenge6.txt")
 	if err != nil {
 		fmt.Println("Error:", err)
-		return
 	}
 
-	decoded, _ := base64.StdEncoding.DecodeString(string(data))
 	keysize := hammingPerKeysize(decoded)
 	key := getBestCharPerPos(decoded, keysize)
 	decrypted := repeatingXorEncrypter(decoded, key)
 	fmt.Println(string(decrypted))
+}
+
+func challenge7() {
+	key := []byte("YELLOW SUBMARINE")
+
+	decoded, err := readAndDecodeB64File("challenge7.txt")
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+
+	decrypted, err := decryptECB(decoded, key)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+
+	fmt.Println(string(decrypted))
+}
+
+func challenge8() {
+	file, err := os.Open("challenge4.txt")
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	blocksize := 16
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		hex, _ := hex.DecodeString(line)
+		ecb := detectRepeatingBlock(hex, blocksize)
+		if ecb {
+			decypted, err := decryptECB(hex, []byte("YELLOW SUBMARINE"))
+			if err != nil {
+				fmt.Println(err)
+			}
+			fmt.Println(string(decypted))
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Scanner error:", err)
+	}
+}
+
+func readAndDecodeB64File(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(string(data))
+	if err != nil {
+		return decoded, err
+	}
+
+	return decoded, nil
 }
 
 func xorBuf(a, b []byte) ([]byte, error) {
@@ -297,4 +358,55 @@ func getBestCharPerPos(data []byte, keysize int) []byte {
 	}
 
 	return result
+}
+
+func decryptECB(plaintext, key []byte) ([]byte, error) {
+	if len(key) != 16 {
+		return nil, fmt.Errorf("key must be 16 bytes (AES-128)")
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	blockSize := block.BlockSize()
+	plaintext = padder(plaintext, blockSize)
+	ciphertext := make([]byte, len(plaintext))
+
+	for bs, be := 0, blockSize; bs < len(plaintext); bs, be = bs+blockSize, be+blockSize {
+		block.Decrypt(ciphertext[bs:be], plaintext[bs:be])
+	}
+
+	return ciphertext, nil
+}
+
+func padder(data []byte, blockSize int) []byte {
+	remainder := len(data) % blockSize
+	if remainder != 0 {
+		padding := blockSize - remainder
+		padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+		return append(data, padtext...)
+	} else {
+		return data
+	}
+}
+
+func detectRepeatingBlock(data []byte, blocksize int) bool {
+	blocks := make(map[string]int)
+
+	for i := 0; i < len(data); i += blocksize {
+		if i+blocksize > len(data) {
+			break
+		}
+		block := data[i : i+blocksize]
+		blockStr := string(block)
+		blocks[blockStr]++
+
+		if blocks[blockStr] > 1 {
+			return true
+		}
+	}
+
+	return false
 }
